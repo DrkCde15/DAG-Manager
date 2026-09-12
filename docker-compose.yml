@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:///./dagmanager.db
+    volumes:
+      - ./backend/app:/app/app
+      - dbdata:/app
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://localhost:8000
+    depends_on:
+      - backend
+
+volumes:
+  dbdata:
