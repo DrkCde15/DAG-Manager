@@ -1,6 +1,6 @@
 # DAG Manager
 
-Dashboard para monitorar e gerenciar DAGs de múltiplas instâncias Airflow.
+Dashboard para monitorar e gerenciar DAGs de múltiplas instâncias Airflow (locais ou na internet).
 
 ## Visão Geral
 
@@ -8,15 +8,16 @@ Dashboard para monitorar e gerenciar DAGs de múltiplas instâncias Airflow.
 ┌─────────────────────────────────────────────────┐
 │              DAG Manager Dashboard              │
 │  ┌─────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │ Streamlit│←→│ FastAPI   │←→│ SQLite/Postgres│ │
+│  │ Streamlit│←→│ FastAPI   │←→│ SQLite        │ │
 │  │  :8501   │  │  :8000    │  │               │  │
 │  └─────────┘  └────┬─────┘  └───────────────┘  │
 │                    │                            │
 │         ┌──────────┼──────────┐                 │
 │         ▼          ▼          ▼                 │
 │    ┌─────────┐ ┌─────────┐ ┌─────────┐         │
-│    │Airflow 1│ │Airflow 2│ │Airflow N│         │
-│    │ :8080   │ │ :8081   │ │ :808X   │         │
+│    │Local    │ │Internet │ │Internet │         │
+│    │:8080    │ │https:// │ │https:// │         │
+│    │         │ │empresa  │ │staging  │         │
 │    └─────────┘ └─────────┘ └─────────┘         │
 └─────────────────────────────────────────────────┘
 ```
@@ -27,17 +28,19 @@ Dashboard para monitorar e gerenciar DAGs de múltiplas instâncias Airflow.
 |--------|------------|
 | Backend | Python 3.12+ / FastAPI / SQLAlchemy (async) |
 | Frontend | Streamlit |
-| Banco | SQLite (dev) / PostgreSQL (prod) |
+| Banco | SQLite (default) / PostgreSQL (prod) |
 | Deploy | Docker Compose / Podman Compose |
 
 ## Funcionalidades
 
 - **Multi-instância** — Monitora N instâncias Airflow ao mesmo tempo
+- **Local + Internet** — Funciona com URLs locais e remotas (HTTPS)
 - **Sync automático** — Busca DAGs a cada 5 minutos
+- **Session auth** — Suporta autenticação baseada em sessão (Airflow 2.10+)
 - **Dashboard consolidado** — Métricas de todas as instâncias em um só lugar
 - **Busca e filtros** — Encontre qualquer DAG rapidamente
 - **Health check** — Detecta instâncias com falha
-- **Auth opcional** — Funciona com ou sem autenticação
+- **Bulk add** — Adicione várias instâncias de uma vez
 
 ## Pré-requisitos
 
@@ -56,7 +59,7 @@ cd dag-manager
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -95,21 +98,35 @@ Dashboard: `http://localhost:8501`
 
 Pelo dashboard (aba **Instances**):
 
-- **Add Instance** — Preencha nome, porta, user e password
-- **Quick Add** — Adicione várias de uma vez (`nome:porta`)
+**Add Instance:**
+
+| Campo | Exemplo |
+|-------|---------|
+| Name | data-warehouse |
+| URL | `http://localhost:8080` ou `https://airflow.empresa.com` |
+| Username | admin |
+| Password | admin |
+
+**Quick Add (bulk):**
+
+```
+data-warehouse|http://localhost:8080
+airflow-producao|https://airflow.empresa.com
+airflow-staging|https://staging.airflow.empresa.com
+```
 
 Ou via API:
 
 ```bash
-# Sem autenticação
+# Local (sem auth)
 curl -X POST http://localhost:8000/instances/ \
   -H "Content-Type: application/json" \
   -d '{"name": "meu-projeto", "url": "http://localhost:8080"}'
 
-# Com autenticação
+# Internet (com auth)
 curl -X POST http://localhost:8000/instances/ \
   -H "Content-Type: application/json" \
-  -d '{"name": "meu-projeto", "url": "http://localhost:8080", "username": "admin", "password": "admin"}'
+  -d '{"name": "airflow-prod", "url": "https://airflow.empresa.com", "username": "admin", "password": "admin"}'
 ```
 
 ### 4. Sincronizar DAGs
@@ -190,10 +207,19 @@ Para PostgreSQL:
 DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/dagmanager
 ```
 
+## URLs Suportadas
+
+| Tipo | Exemplo |
+|------|---------|
+| Local | `http://localhost:8080` |
+| IP local | `http://192.168.1.10:8080` |
+| Internet HTTPS | `https://airflow.empresa.com` |
+| Internet com porta | `https://airflow.empresa.com:8443` |
+
 ## Compatibilidade
 
 Testado com:
-- Airflow 2.10.x (session auth)
+- Airflow 2.10.x (session auth via CSRF)
 - Airflow 2.9.x e anteriores (basic auth)
 
 ## Licença
