@@ -37,6 +37,8 @@ Dashboard para monitorar e gerenciar DAGs de múltiplas instâncias Airflow (loc
 - **Local + Internet** — Funciona com URLs locais e remotas (HTTPS)
 - **Sync automático** — Busca DAGs a cada 5 minutos
 - **Session auth** — Suporta autenticação baseada em sessão (Airflow 2.10+)
+- **Trigger DAG** — Execute DAGs diretamente pelo dashboard
+- **Ver Logs** — Visualize logs das execuções
 - **Dashboard consolidado** — Métricas de todas as instâncias em um só lugar
 - **Busca e filtros** — Encontre qualquer DAG rapidamente
 - **Health check** — Detecta instâncias com falha
@@ -147,6 +149,9 @@ curl -X POST http://localhost:8000/instances/ \
 | `POST` | `/instances/sync-all` | Sync todas |
 | `GET` | `/dags/` | Listar DAGs |
 | `GET` | `/dags/{id}/runs` | Runs de uma DAG |
+| `POST` | `/dags/{id}/trigger` | Trigger DAG |
+| `GET` | `/dags/{id}/runs/{run_id}/logs` | Logs da execução |
+| `GET` | `/dags/{id}/runs/{run_id}/tasks` | Tasks da execução |
 | `GET` | `/dashboard/summary` | Métricas consolidadas |
 | `GET` | `/dashboard/health` | Health das instâncias |
 

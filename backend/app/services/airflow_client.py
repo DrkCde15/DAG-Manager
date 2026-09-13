@@ -81,6 +81,62 @@ class AirflowClient:
         resp.raise_for_status()
         return resp.json().get("dag_runs", [])
 
+    async def trigger_dag(self, dag_id: str, conf: dict | None = None) -> dict:
+        client = await self._get_client()
+        payload = {"conf": conf or {}}
+        resp = await client.post(
+            f"{self.base_url}/api/v1/dags/{dag_id}/dagRuns",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_dag_logs(
+        self, dag_id: str, run_id: str, task_id: str | None = None, try_number: int = 1
+    ) -> str:
+        client = await self._get_client()
+
+        if task_id:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/dags/{dag_id}/tasks/{task_id}/logs/{run_id}/{try_number}",
+            )
+        else:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/dags/{dag_id}/dagRuns/{run_id}/taskInstances",
+            )
+            if resp.status_code == 200:
+                tasks = resp.json().get("task_instances", [])
+                logs = []
+                for t in tasks:
+                    log_resp = await client.get(
+                        f"{self.base_url}/api/v1/dags/{dag_id}/tasks/{t['task_id']}/logs/{run_id}/{try_number}",
+                    )
+                    if log_resp.status_code == 200:
+                        logs.append(f"=== {t['task_id']} ===\n{log_resp.text}")
+                return "\n\n".join(logs) if logs else "No logs found"
+            return resp.text
+
+        if resp.status_code == 200:
+            return resp.text
+        return f"Error fetching logs: {resp.status_code}"
+
+    async def get_task_instances(self, dag_id: str, run_id: str) -> list[dict]:
+        client = await self._get_client()
+        resp = await client.get(
+            f"{self.base_url}/api/v1/dags/{dag_id}/dagRuns/{run_id}/taskInstances",
+        )
+        resp.raise_for_status()
+        return resp.json().get("task_instances", [])
+
+    async def set_dag_paused(self, dag_id: str, is_paused: bool) -> dict:
+        client = await self._get_client()
+        resp = await client.patch(
+            f"{self.base_url}/api/v1/dags/{dag_id}",
+            json={"is_paused": is_paused},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     async def sync_instance(self, instance: AirflowInstance, db: AsyncSession) -> dict:
         try:
             version = await self.get_version()
