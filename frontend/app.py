@@ -109,21 +109,21 @@ with tab2:
 
     st.subheader("Quick Add Multiple")
     with st.form("bulk_add"):
-        st.info("Add multiple local instances at once (one per line: name:port)")
+        st.info("Add multiple instances at once (one per line: name|url)")
         bulk_input = st.text_area(
             "Instances",
-            placeholder="projeto-a:8080\nprojeto-b:8081\nprojeto-c:8082",
+            placeholder="projeto-a|http://localhost:8080\nprojeto-b|https://airflow.company.com",
         )
         
         if st.form_submit_button("Add All"):
             if bulk_input:
                 added = 0
                 for line in bulk_input.strip().split("\n"):
-                    if ":" in line:
-                        name, port = line.split(":", 1)
+                    if "|" in line:
+                        name, url = line.split("|", 1)
                         result = api_post("/instances/", {
                             "name": name.strip(),
-                            "url": f"http://localhost:{port.strip()}",
+                            "url": url.strip(),
                         })
                         if result:
                             added += 1
@@ -134,15 +134,15 @@ with tab2:
     st.subheader("Add New Instance")
     with st.form("add_instance"):
         name = st.text_input("Name", placeholder="data-warehouse")
-        port = st.number_input("Port", min_value=1, max_value=65535, value=8080)
-        username = st.text_input("Username (leave empty if no auth)", placeholder="admin")
-        password = st.text_input("Password", type="password", placeholder="admin")
+        url = st.text_input("Airflow URL", placeholder="http://localhost:8080 or https://airflow.company.com")
+        username = st.text_input("Username (leave empty if no auth)")
+        password = st.text_input("Password", type="password")
 
         if st.form_submit_button("Add Instance"):
-            if name and port:
+            if name and url:
                 data = {
                     "name": name,
-                    "url": f"http://localhost:{port}",
+                    "url": url,
                 }
                 if username:
                     data["username"] = username
