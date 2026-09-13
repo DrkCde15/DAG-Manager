@@ -1,4 +1,5 @@
 import os
+import time
 import httpx
 import streamlit as st
 import pandas as pd
@@ -193,6 +194,75 @@ with tab3:
         col1, col2 = st.columns(2)
         col1.metric("Active DAGs", active_count)
         col2.metric("Paused DAGs", paused_count)
+
+        st.divider()
+        st.subheader("DAG Actions")
+
+        dag_options = {d["dag_id"]: d["id"] for d in dags}
+        selected_dag = st.selectbox("Select DAG", list(dag_options.keys()))
+
+        if selected_dag:
+            st.markdown("**Trigger DAG**")
+            if st.button(f"Run {selected_dag}", key="trigger_dag"):
+                result = api_post(f"/dags/{dag_options[selected_dag]}/trigger")
+                if result and result.get("status") == "success":
+                    st.session_state["live_run"] = {
+                        "dag_id": dag_options[selected_dag],
+                        "dag_name": selected_dag,
+                        "run_id": result.get("run_id"),
+                        "start_time": time.time(),
+                    }
+                    st.rerun()
+
+        if "live_run" in st.session_state:
+            live = st.session_state["live_run"]
+            elapsed = int(time.time() - live["start_time"])
+
+            st.divider()
+            st.subheader(f"Live: {live['dag_name']} - {live['run_id']}")
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            log_container = st.empty()
+
+            for i in range(60):
+                tasks = api_get(f"/dags/{live['dag_id']}/runs/{live['run_id']}/tasks")
+                if tasks and tasks.get("tasks"):
+                    task_list = tasks["tasks"]
+                    total = len(task_list)
+                    done = sum(1 for t in task_list if t.get("state") in ("success", "failed", "skipped"))
+                    running = sum(1 for t in task_list if t.get("state") == "running")
+                    queued = sum(1 for t in task_list if t.get("state") == "queued")
+
+                    progress = done / total if total > 0 else 0
+                    progress_bar.progress(min(progress, 0.99))
+
+                    states = {}
+                    for t in task_list:
+                        s = t.get("state", "unknown")
+                        states[s] = states.get(s, 0) + 1
+                    status_text.text(f"Tasks: {states} | Elapsed: {elapsed}s")
+
+                    logs = api_get(f"/dags/{live['dag_id']}/runs/{live['run_id']}/logs")
+                    if logs and logs.get("logs"):
+                        log_container.code(logs["logs"][-3000:], language="text")
+
+                    if running == 0 and queued == 0 and done == total:
+                        progress_bar.progress(1.0)
+                        has_failed = any(t.get("state") == "failed" for t in task_list)
+                        if has_failed:
+                            st.error(f"DAG failed after {elapsed}s")
+                        else:
+                            st.success(f"DAG completed in {elapsed}s")
+                        if "live_run" in st.session_state:
+                            del st.session_state["live_run"]
+                        break
+
+                time.sleep(2)
+                elapsed = int(time.time() - live["start_time"])
+
+        elif "runs" in st.session_state:
+            del st.session_state["runs"]
 
 with tab4:
     st.header("Settings")
