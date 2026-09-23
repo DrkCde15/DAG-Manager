@@ -73,3 +73,57 @@ class TestDagsAPI:
 
     def test_missing_dag_runs_404(self, client):
         assert client.get("/dags/999/runs").status_code == 404
+
+    def test_trigger_forwards_conf(self, client, monkeypatch):
+        from app.services.airflow_client import AirflowClient
+
+        run_async(seed_dashboard_data())
+        dags = client.get("/dags/").json()
+        etl = next(d for d in dags if d["dag_id"] == "etl")
+        captured = {}
+
+        async def fake_trigger(self, dag_id, conf=None):
+            captured["dag_id"] = dag_id
+            captured["conf"] = conf
+            return {"dag_run_id": "manual__1"}
+
+        async def fake_pause(self, dag_id, is_paused):
+            return {"is_paused": is_paused}
+
+        async def fake_close(self):
+            self._client = None
+
+        monkeypatch.setattr(AirflowClient, "trigger_dag", fake_trigger)
+        monkeypatch.setattr(AirflowClient, "set_dag_paused", fake_pause)
+        monkeypatch.setattr(AirflowClient, "close", fake_close)
+
+        conf = {"date": "2026-09-23", "full_refresh": True}
+        resp = client.post(f"/dags/{etl['id']}/trigger", json={"conf": conf})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "success"
+        assert body["run_id"] == "manual__1"
+        assert captured["dag_id"] == "etl"
+        assert captured["conf"] == conf
+
+    def test_trigger_without_conf_sends_empty(self, client, monkeypatch):
+        from app.services.airflow_client import AirflowClient
+
+        run_async(seed_dashboard_data())
+        dags = client.get("/dags/").json()
+        etl = next(d for d in dags if d["dag_id"] == "etl")
+        captured = {}
+
+        async def fake_trigger(self, dag_id, conf=None):
+            captured["conf"] = conf
+            return {"dag_run_id": "manual__2"}
+
+        async def fake_close(self):
+            self._client = None
+
+        monkeypatch.setattr(AirflowClient, "trigger_dag", fake_trigger)
+        monkeypatch.setattr(AirflowClient, "close", fake_close)
+
+        resp = client.post(f"/dags/{etl['id']}/trigger", json={})
+        assert resp.status_code == 200
+        assert captured["conf"] in (None, {})

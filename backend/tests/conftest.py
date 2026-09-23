@@ -7,6 +7,9 @@ _TEST_DIR = tempfile.mkdtemp(prefix="dagmanager-tests-")
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TEST_DIR}/test.db"
 os.environ["RUNS_SYNC_LIMIT"] = "5"
 os.environ["SYNC_INTERVAL_MINUTES"] = "999"
+# Isola dos segredos do .env local (senão todo teste leva 401)
+os.environ["API_TOKEN"] = ""
+os.environ["SECRET_KEY"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

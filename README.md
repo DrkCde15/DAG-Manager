@@ -37,7 +37,7 @@ Dashboard para monitorar e gerenciar DAGs de múltiplas instâncias Airflow (loc
 - **Local + Internet** — Funciona com URLs locais e remotas (HTTPS)
 - **Sync automático** — Busca DAGs e runs a cada 5 minutos
 - **Session auth** — Suporta autenticação baseada em sessão (Airflow 2.10+)
-- **Trigger DAG** — Execute DAGs diretamente pelo dashboard
+- **Trigger DAG** — Execute DAGs pelo dashboard, com `conf` JSON opcional (parâmetros da run)
 - **Ver Logs** — Visualize logs das execuções
 - **Dashboard consolidado** — Métricas de todas as instâncias em um só lugar
 - **Busca e filtros** — Encontre qualquer DAG rapidamente
@@ -87,7 +87,6 @@ Dashboard: `http://localhost:8501`
 
 ```bash
 source .venv/bin/activate
-cd backend
 pytest
 ```
 
@@ -131,6 +130,26 @@ curl -X POST http://localhost:8000/instances/ \
 - **Automático** — A cada 5 minutos (DAGs + últimas runs de cada DAG)
 - **Manual** — Clique em "Sync" no dashboard
 
+### 5. Trigger com conf (query params da DAG)
+
+No dashboard (aba **DAGs**), em *Trigger DAG*, cole um JSON opcional:
+
+```json
+{
+  "date": "2026-09-23",
+  "full_refresh": true
+}
+```
+
+Na DAG isso chega em `context["conf"]`. Via API:
+
+```bash
+curl -X POST http://localhost:8000/dags/1/trigger \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"conf": {"date": "2026-09-23"}}'
+```
+
 ## API Endpoints
 
 | Método | Rota | Descrição |
@@ -144,7 +163,7 @@ curl -X POST http://localhost:8000/instances/ \
 | `POST` | `/instances/sync-all` | Sync todas |
 | `GET` | `/dags/` | Listar DAGs |
 | `GET` | `/dags/{id}/runs` | Runs de uma DAG |
-| `POST` | `/dags/{id}/trigger` | Trigger DAG |
+| `POST` | `/dags/{id}/trigger` | Trigger DAG (`{"conf": {...}}` opcional) |
 | `GET` | `/dags/{id}/runs/{run_id}/logs` | Logs da execução |
 | `GET` | `/dags/{id}/runs/{run_id}/tasks` | Tasks da execução |
 | `GET` | `/dashboard/summary` | Métricas consolidadas |
@@ -171,14 +190,14 @@ dag-manager/
 │   │       ├── airflow_client.py   # Client API Airflow
 │   │       └── sync_service.py     # Sync periódico
 │   ├── tests/                  # pytest (sync, runs, API)
-│   ├── Dockerfile
-│   └── pytest.ini
+│   └── Dockerfile
 ├── frontend/
 │   ├── app.py                   # Dashboard Streamlit
 │   └── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt             # único (backend + frontend)
 ├── requirements-dev.txt         # pytest
+├── pytest.ini
 ├── .dockerignore
 ├── .env.example
 └── README.md

@@ -1,10 +1,25 @@
+import json
 import os
 import time
+from pathlib import Path
+
 import httpx
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 from datetime import datetime
+
+# Carrega .env da raiz do projeto (independente do CWD)
+_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+if _ENV_FILE.is_file():
+    for _line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
+        _line = _line.strip()
+        if not _line or _line.startswith("#") or "=" not in _line:
+            continue
+        _k, _, _v = _line.partition("=")
+        _k, _v = _k.strip(), _v.strip().strip("'\"")
+        if _k and _k not in os.environ:
+            os.environ[_k] = _v
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
 API_TOKEN = os.getenv("API_TOKEN", "")
@@ -216,14 +231,36 @@ with tab3:
 
         if selected_dag:
             st.markdown("**Trigger DAG**")
-            if st.button(f"Run {selected_dag}", key="trigger_dag"):
-                result = api_post(f"/dags/{dag_options[selected_dag]}/trigger")
+            conf_json = st.text_area(
+                "Conf (JSON opcional — parâmetros que a DAG recebe em `context['conf']`)",
+                placeholder='{\n  "date": "2026-09-23",\n  "full_refresh": true\n}',
+                key="trigger_conf_json",
+                height=140,
+            )
+            conf: dict | None = None
+            conf_error = False
+            if conf_json.strip():
+                try:
+                    parsed = json.loads(conf_json)
+                    if not isinstance(parsed, dict):
+                        st.error("Conf must be a JSON object (key/value).")
+                        conf_error = True
+                    else:
+                        conf = parsed
+                except json.JSONDecodeError as e:
+                    st.error(f"Invalid JSON: {e}")
+                    conf_error = True
+
+            if st.button(f"Run {selected_dag}", key="trigger_dag", disabled=conf_error):
+                payload = {"conf": conf} if conf else {}
+                result = api_post(f"/dags/{dag_options[selected_dag]}/trigger", payload)
                 if result and result.get("status") == "success":
                     st.session_state["live_run"] = {
                         "dag_id": dag_options[selected_dag],
                         "dag_name": selected_dag,
                         "run_id": result.get("run_id"),
                         "start_time": time.time(),
+                        "conf": conf,
                     }
                     st.rerun()
 
