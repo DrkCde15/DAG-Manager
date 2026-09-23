@@ -1,10 +1,28 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, Enum, ForeignKey, Text, Boolean
+from sqlalchemy import String, Integer, DateTime, Enum, ForeignKey, Text, Boolean, UniqueConstraint, TypeDecorator
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.security import encrypt_secret, decrypt_secret
+
+
+class EncryptedString(TypeDecorator):
+    """Text col that encrypts at rest when SECRET_KEY is set."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return encrypt_secret(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return decrypt_secret(value)
 
 
 class InstanceStatus(str, enum.Enum):
@@ -29,7 +47,7 @@ class AirflowInstance(Base):
     name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     url: Mapped[str] = mapped_column(String(500), nullable=False)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password: Mapped[str | None] = mapped_column(EncryptedString(), nullable=True)
     status: Mapped[InstanceStatus] = mapped_column(
         Enum(InstanceStatus), default=InstanceStatus.ACTIVE
     )
@@ -65,6 +83,9 @@ class DAG(Base):
 
 class DAGRun(Base):
     __tablename__ = "dag_runs"
+    __table_args__ = (
+        UniqueConstraint("dag_id", "run_id", name="uq_dag_runs_dag_id_run_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     dag_id: Mapped[int] = mapped_column(Integer, ForeignKey("dags.id"))

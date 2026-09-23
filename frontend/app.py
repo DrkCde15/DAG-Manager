@@ -7,13 +7,20 @@ import plotly.express as px
 from datetime import datetime
 
 API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_TOKEN = os.getenv("API_TOKEN", "")
 
 st.set_page_config(page_title="DAG Manager", page_icon=": DAG:", layout="wide")
 
 
+def _headers() -> dict:
+    if API_TOKEN:
+        return {"Authorization": f"Bearer {API_TOKEN}"}
+    return {}
+
+
 def api_get(endpoint: str):
     try:
-        resp = httpx.get(f"{API_URL}{endpoint}", timeout=10.0)
+        resp = httpx.get(f"{API_URL}{endpoint}", timeout=10.0, headers=_headers())
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
@@ -23,7 +30,7 @@ def api_get(endpoint: str):
 
 def api_post(endpoint: str, data: dict = None):
     try:
-        resp = httpx.post(f"{API_URL}{endpoint}", json=data, timeout=10.0)
+        resp = httpx.post(f"{API_URL}{endpoint}", json=data, timeout=10.0, headers=_headers())
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
@@ -33,7 +40,7 @@ def api_post(endpoint: str, data: dict = None):
 
 def api_delete(endpoint: str):
     try:
-        resp = httpx.delete(f"{API_URL}{endpoint}", timeout=10.0)
+        resp = httpx.delete(f"{API_URL}{endpoint}", timeout=10.0, headers=_headers())
         return resp.status_code == 204
     except Exception as e:
         st.error(f"API Error: {e}")
@@ -48,18 +55,24 @@ with tab1:
     st.header("Overview")
 
     summary = api_get("/dashboard/summary")
+    health = api_get("/dashboard/health")
+    has_sync_data = bool(health) and any(h.get("last_sync") for h in health)
+
     if summary:
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Instances", summary["total_instances"], f"{summary['active_instances']} active")
         col2.metric("Total DAGs", summary["total_dags"], f"{summary['active_dags']} active")
-        col3.metric("Runs Today", summary["runs_today"])
-        col4.metric("Failed Runs", summary["failed_runs"], delta_color="inverse")
-
-        if summary["failed_runs"] > 0:
-            st.warning(f"⚠ {summary['failed_runs']} failed runs detected!")
+        if has_sync_data:
+            col3.metric("Runs Today", summary["runs_today"])
+            col4.metric("Failed Runs", summary["failed_runs"], delta_color="inverse")
+            if summary["failed_runs"] > 0:
+                st.warning(f"⚠ {summary['failed_runs']} failed runs detected!")
+        else:
+            col3.metric("Runs Today", "—")
+            col4.metric("Failed Runs", "—")
+            st.info("Run metrics appear after the first sync with runs.")
 
     st.subheader("Instance Health")
-    health = api_get("/dashboard/health")
     if health:
         df_health = pd.DataFrame(health)
         if not df_health.empty:
@@ -268,4 +281,5 @@ with tab4:
     st.header("Settings")
     st.info("Configuration will be available here in future versions.")
     st.write(f"**API URL:** {API_URL}")
+    st.write(f"**API Token:** {'configured' if API_TOKEN else 'not set'}")
     st.write(f"**Sync Interval:** 5 minutes")

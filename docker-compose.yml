@@ -1,20 +1,29 @@
 services:
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: sqlite+aiosqlite:///./dagmanager.db
+      API_TOKEN: ${API_TOKEN:-}
+      SECRET_KEY: ${SECRET_KEY:-}
+      SYNC_INTERVAL_MINUTES: ${SYNC_INTERVAL_MINUTES:-5}
+      RUNS_SYNC_LIMIT: ${RUNS_SYNC_LIMIT:-20}
     volumes:
       - ./backend/app:/app/app
       - dbdata:/app
 
   frontend:
-    build: ./frontend
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     ports:
       - "8501:8501"
     environment:
-      API_URL: http://localhost:8000
+      API_URL: http://backend:8000
+      API_TOKEN: ${API_TOKEN:-}
     depends_on:
       - backend
 

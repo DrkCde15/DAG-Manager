@@ -1,10 +1,34 @@
 import httpx
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models.models import AirflowInstance, DAG, DagState, InstanceStatus
+from app.config import settings
+from app.models.models import AirflowInstance, DAG, DAGRun, DagState, InstanceStatus
+
+
+def _parse_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _map_run_state(raw: str | None) -> DagState | None:
+    if not raw:
+        return None
+    try:
+        return DagState(raw)
+    except ValueError:
+        if raw in ("waiting_for_slot", "deferred", "up_for_reschedule"):
+            return DagState.QUEUED
+        return None
 
 
 class AirflowClient:
@@ -137,6 +161,78 @@ class AirflowClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def _upsert_runs(self, dag: DAG, raw_runs: list[dict], db: AsyncSession) -> int:
+        if not raw_runs:
+            return 0
+
+        run_keys = [
+            r.get("dag_run_id") or r.get("run_id")
+            for r in raw_runs
+            if r.get("dag_run_id") or r.get("run_id")
+        ]
+        if not run_keys:
+            return 0
+
+        result = await db.execute(
+            select(DAGRun).where(DAGRun.dag_id == dag.id, DAGRun.run_id.in_(run_keys))
+        )
+        existing_map = {r.run_id: r for r in result.scalars().all()}
+
+        synced = 0
+        for raw in raw_runs:
+            run_id = raw.get("dag_run_id") or raw.get("run_id")
+            if not run_id:
+                continue
+            state = _map_run_state(raw.get("state"))
+            execution_date = _parse_dt(raw.get("execution_date"))
+            if state is None or execution_date is None:
+                continue
+
+            start_date = _parse_dt(raw.get("start_date"))
+            end_date = _parse_dt(raw.get("end_date"))
+            run_type = raw.get("run_type")
+
+            if run_id in existing_map:
+                row = existing_map[run_id]
+                row.state = state
+                row.execution_date = execution_date
+                row.start_date = start_date
+                row.end_date = end_date
+                row.run_type = run_type
+            else:
+                db.add(
+                    DAGRun(
+                        dag_id=dag.id,
+                        run_id=run_id,
+                        state=state,
+                        execution_date=execution_date,
+                        start_date=start_date,
+                        end_date=end_date,
+                        run_type=run_type,
+                    )
+                )
+            synced += 1
+        return synced
+
+    async def _sync_runs(self, instance_id: int, remote_dag_ids: set[str], db: AsyncSession) -> int:
+        result = await db.execute(
+            select(DAG).where(DAG.instance_id == instance_id, DAG.is_active == True)
+        )
+        local_active = {d.dag_id: d for d in result.scalars().all()}
+
+        runs_synced = 0
+        for dag_key, local_dag in local_active.items():
+            if dag_key not in remote_dag_ids:
+                continue
+            try:
+                raw_runs = await self.get_dag_runs(
+                    dag_key, limit=settings.runs_sync_limit
+                )
+            except Exception:
+                continue
+            runs_synced += await self._upsert_runs(local_dag, raw_runs, db)
+        return runs_synced
+
     async def sync_instance(self, instance: AirflowInstance, db: AsyncSession) -> dict:
         try:
             version = await self.get_version()
@@ -192,6 +288,9 @@ class AirflowClient:
                 if dag_id not in remote_dag_ids:
                     dag.is_active = False
 
+            await db.flush()
+            runs_synced = await self._sync_runs(instance.id, remote_dag_ids, db)
+
             await db.commit()
             instance.last_sync = datetime.utcnow()
             await db.commit()
@@ -200,6 +299,7 @@ class AirflowClient:
                 "instance": instance.name,
                 "version": version,
                 "dags_synced": synced_count,
+                "runs_synced": runs_synced,
                 "status": "success",
             }
         except Exception as e:

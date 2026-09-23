@@ -35,7 +35,7 @@ Dashboard para monitorar e gerenciar DAGs de múltiplas instâncias Airflow (loc
 
 - **Multi-instância** — Monitora N instâncias Airflow ao mesmo tempo
 - **Local + Internet** — Funciona com URLs locais e remotas (HTTPS)
-- **Sync automático** — Busca DAGs a cada 5 minutos
+- **Sync automático** — Busca DAGs e runs a cada 5 minutos
 - **Session auth** — Suporta autenticação baseada em sessão (Airflow 2.10+)
 - **Trigger DAG** — Execute DAGs diretamente pelo dashboard
 - **Ver Logs** — Visualize logs das execuções
@@ -54,34 +54,22 @@ Dashboard para monitorar e gerenciar DAGs de múltiplas instâncias Airflow (loc
 ```bash
 git clone <repo-url>
 cd dag-manager
-```
 
-### Backend
-
-```bash
-cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -r requirements-dev.txt  # apenas para testes
 ```
 
-### Frontend
-
-```bash
-cd frontend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+Um único `requirements.txt` na raiz cobre backend e frontend.
 
 ## Uso
 
 ### 1. Iniciar o backend
 
 ```bash
-cd backend
 source .venv/bin/activate
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8000 --app-dir backend
 ```
 
 API docs: `http://localhost:8000/docs`
@@ -89,12 +77,19 @@ API docs: `http://localhost:8000/docs`
 ### 2. Iniciar o frontend
 
 ```bash
-cd frontend
 source .venv/bin/activate
-streamlit run app.py
+streamlit run frontend/app.py
 ```
 
 Dashboard: `http://localhost:8501`
+
+### Testes
+
+```bash
+source .venv/bin/activate
+cd backend
+pytest
+```
 
 ### 3. Adicionar instâncias Airflow
 
@@ -133,7 +128,7 @@ curl -X POST http://localhost:8000/instances/ \
 
 ### 4. Sincronizar DAGs
 
-- **Automático** — A cada 5 minutos
+- **Automático** — A cada 5 minutos (DAGs + últimas runs de cada DAG)
 - **Manual** — Clique em "Sync" no dashboard
 
 ## API Endpoints
@@ -175,13 +170,16 @@ dag-manager/
 │   │   └── services/
 │   │       ├── airflow_client.py   # Client API Airflow
 │   │       └── sync_service.py     # Sync periódico
+│   ├── tests/                  # pytest (sync, runs, API)
 │   ├── Dockerfile
-│   └── requirements.txt
+│   └── pytest.ini
 ├── frontend/
 │   ├── app.py                   # Dashboard Streamlit
-│   ├── Dockerfile
-│   └── requirements.txt
+│   └── Dockerfile
 ├── docker-compose.yml
+├── requirements.txt             # único (backend + frontend)
+├── requirements-dev.txt         # pytest
+├── .dockerignore
 ├── .env.example
 └── README.md
 ```
@@ -204,12 +202,39 @@ Variáveis de ambiente (`.env`):
 ```env
 DATABASE_URL=sqlite+aiosqlite:///./dagmanager.db
 SYNC_INTERVAL_MINUTES=5
+RUNS_SYNC_LIMIT=20
+
+# Exige Authorization: Bearer <token> (ou X-API-Key) em todas as rotas exceto / e /docs
+API_TOKEN=
+
+# Criptografa a senha das instâncias Airflow no banco (Fernet via SHA-256)
+SECRET_KEY=
 ```
 
 Para PostgreSQL:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/dagmanager
+```
+
+### Segurança
+
+| Variável | Efeito |
+|----------|--------|
+| `API_TOKEN` | Se definida, a API responde **401** sem `Authorization: Bearer <token>` ou `X-API-Key`. Frontend envia o header automaticamente. |
+| `SECRET_KEY` | Se definida, senhas de instância são gravadas criptografadas no SQLite/Postgres. Sem ela, warning no startup e texto puro. |
+
+**Antes de expor a porta 8000 fora de localhost, defina `API_TOKEN` e `SECRET_KEY`** (veja `.env.example`).
+
+```bash
+# gerar valores
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Exemplo com curl autenticado:
+
+```bash
+curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8000/dashboard/summary
 ```
 
 ## URLs Suportadas

@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models.models import DAG, DAGRun, AirflowInstance, DagState
+from app.models.models import DAG, DAGRun, AirflowInstance
 from app.schemas.schemas import DAGResponse, DAGRunResponse
 from app.services.airflow_client import AirflowClient
 
@@ -199,40 +199,3 @@ async def get_task_instances(
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         await client.close()
-
-
-@router.get("/stats/summary")
-async def dag_stats(db: AsyncSession = Depends(get_db)):
-    total_result = await db.execute(select(func.count(DAG.id)))
-    total = total_result.scalar()
-
-    active_result = await db.execute(select(func.count(DAG.id)).where(DAG.is_active == True))
-    active = active_result.scalar()
-
-    paused_result = await db.execute(select(func.count(DAG.id)).where(DAG.is_paused == True))
-    paused = paused_result.scalar()
-
-    from datetime import datetime
-    today_result = await db.execute(
-        select(func.count(DAGRun.id)).where(DAGRun.execution_date >= func.current_date())
-    )
-    today_runs = today_result.scalar()
-
-    failed_result = await db.execute(
-        select(func.count(DAGRun.id)).where(DAGRun.state == DagState.FAILED)
-    )
-    failed_runs = failed_result.scalar()
-
-    running_result = await db.execute(
-        select(func.count(DAGRun.id)).where(DAGRun.state == DagState.RUNNING)
-    )
-    running_runs = running_result.scalar()
-
-    return {
-        "total_dags": total or 0,
-        "active_dags": active or 0,
-        "paused_dags": paused or 0,
-        "runs_today": today_runs or 0,
-        "failed_runs": failed_runs or 0,
-        "running_runs": running_runs or 0,
-    }
